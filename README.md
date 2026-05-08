@@ -1,2 +1,2 @@
 # Sepsis-Detection
-This project builds an early warning system for sepsis — one of the leading causes of ICU mortality — using deep learning on real clinical data from the MIMIC-IV database.
+This project builds an early warning system for sepsis — one of the leading causes of ICU mortality — using deep learning on real clinical data from the MIMIC-IV database.The model ingests 12-hour windows of patient vitals (heart rate, blood pressure, respiratory rate, SpO2, temperature) and lab values (lactate, WBC, creatinine) to predict sepsis onset up to 6 hours before it meets Sepsis-3 diagnostic criteria.
