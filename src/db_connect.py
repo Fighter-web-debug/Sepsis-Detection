@@ -1,4 +1,3 @@
-import pandas as pd
 from sqlalchemy import create_engine, text
 
 engine = create_engine('postgresql://sepsis_user:sepsis123@localhost:5432/mimic4')
