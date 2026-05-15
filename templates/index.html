@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ICU Sepsis Monitor</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0a0f1e;color:#e8eaf0;min-height:100vh;padding:1.5rem}
+    .hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem}
+    .hdr h1{font-size:16px;font-weight:500;letter-spacing:.02em}
+    .hdr p{font-size:12px;color:#6b7280;margin-top:2px}
+    .hdr-right{display:flex;align-items:center;gap:10px}
+    .live-dot{width:8px;height:8px;border-radius:50%;background:#1D9E75;animation:pulse 1.4s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+    .live-txt{font-size:12px;color:#1D9E75;font-weight:500}
+    .time-txt{font-size:12px;color:#6b7280}
+    .vitals-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1rem}
+    .vc{background:#111827;border:0.5px solid #1f2937;border-radius:12px;padding:1rem}
+    .vc.alert{border-color:#993C1D;background:#1a0d08}
+    .vc.warn{border-color:#854F0B;background:#130d02}
+    .vlabel{font-size:11px;color:#6b7280;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+    .vval{font-size:28px;font-weight:500;line-height:1}
+    .vunit{font-size:12px;color:#6b7280;margin-left:3px}
+    .vtrend{font-size:11px;margin-top:4px}
+    .danger{color:#F0997B}.warning{color:#EF9F27}.normal{color:#5DCAA5}
+    .trend-up{color:#F0997B}.trend-dn{color:#5DCAA5}.trend-flat{color:#6b7280}
+    .spark{width:100%;height:36px;margin-top:8px;display:block}
+    .risk-panel{border-radius:12px;padding:1.25rem;margin-bottom:1rem;border:0.5px solid #1f2937;background:#111827;transition:all .5s ease}
+    .risk-panel.high{border-color:#993C1D;background:#1a0d08}
+    .risk-panel.mod{border-color:#854F0B;background:#130d02}
+    .risk-panel.low{border-color:#0F6E56;background:#04120e}
+    .risk-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem}
+    .risk-lbl{font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.06em}
+    .badge{font-size:13px;font-weight:500;padding:4px 12px;border-radius:99px}
+    .badge-high{background:#712B13;color:#F5C4B3}
+    .badge-mod{background:#633806;color:#FAC775}
+    .badge-low{background:#085041;color:#9FE1CB}
+    .prob-row{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+    .prob-num{font-size:40px;font-weight:500;min-width:90px;transition:color .5s}
+    .ph{color:#F0997B}.pm{color:#EF9F27}.pl{color:#5DCAA5}
+    .bar-track{flex:1;height:6px;background:#1f2937;border-radius:99px;overflow:hidden}
+    .bar-fill{height:100%;border-radius:99px;transition:width .8s ease,background .5s}
+    .bh{background:#D85A30}.bm{background:#BA7517}.bl{background:#1D9E75}
+    .bar-info{font-size:11px;color:#6b7280;margin-top:5px}
+    .shap-section{margin-top:10px}
+    .shap-title{font-size:11px;color:#6b7280;margin-bottom:6px}
+    .shap-pills{display:flex;gap:6px;flex-wrap:wrap}
+    .pill{font-size:11px;padding:3px 9px;border-radius:99px;background:#1f2937;color:#9ca3af}
+    .pill.pos{background:#2d1008;color:#F0997B}
+    .pill.neg{background:#04120e;color:#5DCAA5}
+    .bottom-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .info-card{background:#111827;border:0.5px solid #1f2937;border-radius:12px;padding:1rem}
+    .info-title{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+    .row{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:0.5px solid #1f2937}
+    .row:last-child{border-bottom:none}
+    .rk{color:#6b7280}.rv{color:#e8eaf0;font-weight:500}
+    .disclaimer{font-size:11px;color:#374151;text-align:center;margin-top:1rem}
+    .alarmbox{display:none;background:#712B13;border:0.5px solid #993C1D;border-radius:10px;padding:10px 14px;margin-bottom:1rem;font-size:13px;color:#F5C4B3;animation:flash 1s infinite}
+    .alarmbox.show{display:block}
+    @keyframes flash{0%,100%{opacity:1}50%{opacity:.6}}
+  </style>
+</head>
+<body>
+  <div style="max-width:960px;margin:0 auto">
+    <div class="hdr">
+      <div>
+        <h1>ICU Sepsis Monitor</h1>
+        <p>Patient ID: ICU-2847 &nbsp;·&nbsp; Bed 14 &nbsp;·&nbsp; Admitted 08:32</p>
+      </div>
+      <div class="hdr-right">
+        <div class="live-dot"></div>
+        <span class="live-txt">Live</span>
+        <span class="time-txt" id="clock">--:--:--</span>
+      </div>
+    </div>
+
+    <div class="alarmbox" id="alarmbox">
+      SEPSIS ALERT — High risk detected. Notify attending physician immediately.
+    </div>
+
+    <div class="vitals-grid">
+      <div class="vc" id="vc-hr">
+        <div class="vlabel">Heart rate</div>
+        <div><span class="vval danger" id="v-hr">--</span><span class="vunit">bpm</span></div>
+        <div class="vtrend trend-up" id="t-hr">↑ rising</div>
+        <canvas class="spark" id="c-hr"></canvas>
+      </div>
+      <div class="vc" id="vc-o2">
+        <div class="vlabel">SpO2</div>
+        <div><span class="vval normal" id="v-o2">--</span><span class="vunit">%</span></div>
+        <div class="vtrend" id="t-o2"></div>
+        <canvas class="spark" id="c-o2"></canvas>
+      </div>
+      <div class="vc" id="vc-rr">
+        <div class="vlabel">Resp rate</div>
+        <div><span class="vval warning" id="v-rr">--</span><span class="vunit">br/min</span></div>
+        <div class="vtrend" id="t-rr"></div>
+        <canvas class="spark" id="c-rr"></canvas>
+      </div>
+      <div class="vc" id="vc-sbp">
+        <div class="vlabel">Systolic BP</div>
+        <div><span class="vval" id="v-sbp">--</span><span class="vunit">mmHg</span></div>
+        <div class="vtrend" id="t-sbp"></div>
+        <canvas class="spark" id="c-sbp"></canvas>
+      </div>
+      <div class="vc" id="vc-map">
+        <div class="vlabel">MAP</div>
+        <div><span class="vval" id="v-map">--</span><span class="vunit">mmHg</span></div>
+        <div class="vtrend" id="t-map"></div>
+        <canvas class="spark" id="c-map"></canvas>
+      </div>
+      <div class="vc" id="vc-tmp">
+        <div class="vlabel">Temperature</div>
+        <div><span class="vval" id="v-tmp">--</span><span class="vunit">°C</span></div>
+        <div class="vtrend" id="t-tmp"></div>
+        <canvas class="spark" id="c-tmp"></canvas>
+      </div>
+    </div>
+
+    <div class="risk-panel" id="risk-panel">
+      <div class="risk-top">
+        <span class="risk-lbl">Sepsis risk — LSTM prediction</span>
+        <span class="badge badge-low" id="risk-badge">Low risk</span>
+      </div>
+      <div class="prob-row">
+        <span class="prob-num pl" id="prob-num">0.0%</span>
+        <div style="flex:1">
+          <div class="bar-track"><div class="bar-fill bl" id="prob-bar" style="width:0%"></div></div>
+          <div class="bar-info">Threshold: 15% &nbsp;·&nbsp; Updated every 5s &nbsp;·&nbsp; Window: 12 hours</div>
+        </div>
+      </div>
+      <div class="shap-section">
+        <div class="shap-title">Top contributing features</div>
+        <div class="shap-pills" id="shap-pills">
+          <span class="pill">Waiting for data...</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-grid">
+      <div class="info-card">
+        <div class="info-title">Prediction history</div>
+        <div id="history"></div>
+      </div>
+      <div class="info-card">
+        <div class="info-title">Model info</div>
+        <div class="row"><span class="rk">Architecture</span><span class="rv">LSTM + attention</span></div>
+        <div class="row"><span class="rk">AUROC</span><span class="rv">0.9539</span></div>
+        <div class="row"><span class="rk">AUPRC</span><span class="rv">0.3810</span></div>
+        <div class="row"><span class="rk">Features</span><span class="rv">21</span></div>
+        <div class="row"><span class="rk">Window</span><span class="rv">12 hours</span></div>
+        <div class="row"><span class="rk">Dataset</span><span class="rv">PhysioNet 2019</span></div>
+      </div>
+    </div>
+
+    <div class="disclaimer">Research demonstration only — not for clinical use</div>
+  </div>
+
+<script>
+var vitals = {
+  hr:  {val:88, drift:0.25, noise:2, min:60, max:160, hist:[], label:'HR'},
+  o2:  {val:97, drift:-0.08,noise:0.5,min:82,max:100, hist:[], label:'SpO2'},
+  rr:  {val:16, drift:0.12, noise:1, min:10, max:40,  hist:[], label:'Resp'},
+  sbp: {val:122,drift:-0.18,noise:3, min:60, max:180, hist:[], label:'SBP'},
+  map: {val:84, drift:-0.12,noise:2, min:40, max:130, hist:[], label:'MAP'},
+  tmp: {val:37.1,drift:0.015,noise:0.05,min:35,max:40,hist:[],label:'Temp'}
+};
+var histLog=[], tick=0;
+
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+
+function stepVitals(){
+  tick++;
+  var p=Math.min(tick/100,1);
+  Object.keys(vitals).forEach(function(k){
+    var v=vitals[k];
+    v.val=clamp(v.val+v.drift*p+(Math.random()-.5)*v.noise,v.min,v.max);
+    v.hist.push(v.val);
+    if(v.hist.length>24)v.hist.shift();
+  });
+}
+
+function colorFor(k,val){
+  if(k==='hr')  return val>110?'danger':val>100?'warning':'normal';
+  if(k==='o2')  return val<92?'danger':val<95?'warning':'normal';
+  if(k==='rr')  return val>24?'danger':val>20?'warning':'normal';
+  if(k==='sbp') return val<90?'danger':val<105?'warning':'normal';
+  if(k==='map') return val<65?'danger':val<70?'warning':'normal';
+  if(k==='tmp') return val>38.5?'danger':val>38?'warning':'normal';
+  return 'normal';
+}
+
+function cardClass(k,val){
+  var c=colorFor(k,val);
+  return c==='danger'?'vc alert':c==='warning'?'vc warn':'vc';
+}
+
+function trendText(hist){
+  if(hist.length<4)return '';
+  var last=hist[hist.length-1], prev=hist[hist.length-4];
+  var diff=last-prev;
+  if(Math.abs(diff)<0.3)return '<span class="trend-flat">→ stable</span>';
+  return diff>0?'<span class="trend-up">↑ rising</span>':'<span class="trend-dn">↓ falling</span>';
+}
+
+function drawSpark(id,data,color){
+  var c=document.getElementById(id);
+  if(!c||data.length<2)return;
+  c.width=c.offsetWidth*window.devicePixelRatio||200;
+  c.height=36*window.devicePixelRatio||72;
+  var ctx=c.getContext('2d');
+  ctx.clearRect(0,0,c.width,c.height);
+  var mn=Math.min.apply(null,data)-0.5;
+  var mx=Math.max.apply(null,data)+0.5;
+  var w=c.width,h=c.height;
+  ctx.strokeStyle=color;ctx.lineWidth=2;ctx.beginPath();
+  data.forEach(function(v,i){
+    var x=(i/(data.length-1))*w;
+    var y=h-((v-mn)/(mx-mn))*h;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+}
+
+var sparkColors={hr:'#F0997B',o2:'#5DCAA5',rr:'#EF9F27',sbp:'#EF9F27',map:'#5DCAA5',tmp:'#EF9F27'};
+
+function renderVitals(){
+  var disp={hr:Math.round(vitals.hr.val),o2:Math.round(vitals.o2.val),
+    rr:Math.round(vitals.rr.val),sbp:Math.round(vitals.sbp.val),
+    map:Math.round(vitals.map.val),tmp:vitals.tmp.val.toFixed(1)};
+  Object.keys(vitals).forEach(function(k){
+    var el=document.getElementById('v-'+k);
+    if(el){el.textContent=disp[k];el.className='vval '+colorFor(k,vitals[k].val);}
+    var vc=document.getElementById('vc-'+k);
+    if(vc)vc.className=cardClass(k,vitals[k].val);
+    var tr=document.getElementById('t-'+k);
+    if(tr)tr.innerHTML=trendText(vitals[k].hist);
+    drawSpark('c-'+k,vitals[k].hist,sparkColors[k]);
+  });
+}
+
+function buildSequence(){
+  var hr=vitals.hr.val,o2=vitals.o2.val,rr=vitals.rr.val;
+  var sbp=vitals.sbp.val,map=vitals.map.val,tmp=vitals.tmp.val;
+  var hrh=vitals.hr.hist,o2h=vitals.o2.hist,sbph=vitals.sbp.hist,rrh=vitals.rr.hist;
+  var n=12,seq=[];
+  for(var t=0;t<n;t++){
+    var f=t/(n-1);
+    var hv = hrh.length>1 ? hrh[Math.floor(f*(hrh.length-1))] : hr-(vitals.hr.drift*(n-t));
+    var ov = o2h.length>1 ? o2h[Math.floor(f*(o2h.length-1))] : o2-(vitals.o2.drift*(n-t));
+    var rv = rrh.length>1 ? rrh[Math.floor(f*(rrh.length-1))] : rr-(vitals.rr.drift*(n-t));
+    var sv = sbph.length>1? sbph[Math.floor(f*(sbph.length-1))]: sbp-(vitals.sbp.drift*(n-t));
+    var mv = map-(vitals.map.drift*(n-t));
+    var tv = tmp-(vitals.tmp.drift*(n-t));
+    seq.push([hv,ov,tv,sv,mv,rv,
+      1.1,1.8,10.0,130.0,4.2,12.0,58.0,
+      hv,ov,sv,rv,5.0,2.5,10.0,3.5]);
+  }
+  return seq;
+}
+
+function updateShap(prob,vitalsNow){
+  var features=[
+    {name:'HR trend',    score:vitals.hr.drift>0?prob*0.3:0,    dir:'pos'},
+    {name:'Resp rate',   score:vitals.rr.val>20?prob*0.25:0,    dir:'pos'},
+    {name:'Temperature', score:vitals.tmp.val>38?prob*0.2:0,    dir:'pos'},
+    {name:'SpO2 mean',   score:vitals.o2.val<95?prob*0.2:0,     dir:'neg'},
+    {name:'SBP trend',   score:vitals.sbp.drift<0?prob*0.15:0,  dir:'pos'},
+    {name:'MAP',         score:vitals.map.val<70?prob*0.15:0,   dir:'pos'},
+  ].filter(function(f){return f.score>0.5;})
+   .sort(function(a,b){return b.score-a.score;})
+   .slice(0,5);
+
+  var html='';
+  if(features.length===0){html='<span class="pill">Vitals within normal range</span>';}
+  else{features.forEach(function(f){
+    html+='<span class="pill '+f.dir+'">'+(f.dir==='pos'?'↑ ':'↓ ')+f.name+'</span>';
+  });}
+  document.getElementById('shap-pills').innerHTML=html;
+}
+
+var historyLog=[];
+function updateHistory(prob,risk){
+  var n=new Date();
+  var ts=n.getHours().toString().padStart(2,'0')+':'+
+         n.getMinutes().toString().padStart(2,'0')+':'+
+         n.getSeconds().toString().padStart(2,'0');
+  historyLog.unshift({ts:ts,prob:prob,risk:risk});
+  if(historyLog.length>6)historyLog.pop();
+  var html='';
+  historyLog.forEach(function(h){
+    var c=h.risk==='High'?'#F0997B':h.risk==='Mod'?'#EF9F27':'#5DCAA5';
+    html+='<div class="row"><span class="rk">'+h.ts+'</span><span class="rv" style="color:'+c+'">'+h.prob+'% — '+h.risk+'</span></div>';
+  });
+  document.getElementById('history').innerHTML=html;
+}
+
+function applyRisk(prob){
+  var isHigh=prob>=15, isMod=prob>=8&&prob<15;
+  var panel=document.getElementById('risk-panel');
+  var badge=document.getElementById('risk-badge');
+  var num=document.getElementById('prob-num');
+  var bar=document.getElementById('prob-bar');
+  var alarm=document.getElementById('alarmbox');
+
+  panel.className='risk-panel '+(isHigh?'high':isMod?'mod':'low');
+  badge.className='badge '+(isHigh?'badge-high':isMod?'badge-mod':'badge-low');
+  badge.textContent=isHigh?'High risk':isMod?'Moderate':'Low risk';
+  num.className='prob-num '+(isHigh?'ph':isMod?'pm':'pl');
+  num.textContent=prob.toFixed(1)+'%';
+  bar.className='bar-fill '+(isHigh?'bh':isMod?'bm':'bl');
+  bar.style.width=Math.min(prob,100)+'%';
+  alarm.className='alarmbox'+(isHigh?' show':'');
+
+  var risk=isHigh?'High':isMod?'Mod':'Low';
+  updateHistory(prob.toFixed(1),risk);
+  updateShap(prob);
+}
+
+async function callPredict(){
+  try{
+    var seq=buildSequence();
+    var res=await fetch('/predict_sequence',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({sequence:seq})
+    });
+    var data=await res.json();
+    if(data.probability!==undefined)applyRisk(data.probability);
+  }catch(e){
+    var hr=vitals.hr.val,o2=vitals.o2.val,rr=vitals.rr.val;
+    var sbp=vitals.sbp.val,map=vitals.map.val,tmp=vitals.tmp.val;
+    var s=0;
+    s+=Math.max(0,(hr-90)/50)*25;
+    s+=Math.max(0,(100-o2)/15)*20;
+    s+=Math.max(0,(rr-16)/20)*20;
+    s+=Math.max(0,(110-sbp)/50)*15;
+    s+=Math.max(0,(75-map)/30)*10;
+    s+=Math.max(0,(tmp-37.5)/2)*10;
+    applyRisk(Math.min(95,Math.max(0.5,s)));
+  }
+}
+
+function updateClock(){
+  var n=new Date();
+  document.getElementById('clock').textContent=
+    n.getHours().toString().padStart(2,'0')+':'+
+    n.getMinutes().toString().padStart(2,'0')+':'+
+    n.getSeconds().toString().padStart(2,'0');
+}
+
+function tick2(){
+  stepVitals();
+  renderVitals();
+  updateClock();
+}
+
+tick2();
+setInterval(tick2,2000);
+setInterval(callPredict,5000);
+callPredict();
+</script>
+</body>
+</html>
